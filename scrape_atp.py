@@ -4,88 +4,111 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from db import insert_tournament, insert_player, insert_match, insert_match_stats
+from db import insert_tournament, insert_player, insert_match, insert_stats, Session, Player
 
 options = uc.ChromeOptions()
 options.headless = False
 driver = uc.Chrome(options=options)
-
 wait = WebDriverWait(driver, 20)
 
-driver.get("https://www.atptour.com/en/scores/results-archive?year=2025")
-time.sleep(random.uniform(2, 4))
 
-tournament_elements = wait.until(EC.presence_of_all_elements_located(
-    (By.CSS_SELECTOR, "ul.events > li")
-))
-
-second_tournament = tournament_elements[1]
-
-tournament_name = second_tournament.find_element(By.CSS_SELECTOR, "a.tournament__profile").text
-city = "Dummy City"
-year = 2025
-
-# tournament_id = insert_tournament(tournament_name, city, year)
-# print(f"Tournament inserted with ID: {tournament_id}")
-
-result_link = second_tournament.find_element(By.CSS_SELECTOR, ".non-live-cta a")
-result_url = result_link.get_attribute("href")
-print(f"Results URL: {result_url}")
-
-driver.get(result_url)
-time.sleep(random.uniform(2, 4))
+def open_and_wait(url):
+    driver.get(url)
+    time.sleep(random.uniform(2, 4))
 
 
-matches = wait.until(EC.presence_of_all_elements_located(
-    (By.CSS_SELECTOR, "div.match")
-))
-first_match = matches[4]
+def get_or_create_player(name: str, ranking: int = 0) -> int:
+    with Session() as session:
+        player = session.exec(Player.select().where(Player.name == name)).first()
+        if player:
+            return player.id
+    return insert_player(name)
 
-match_stats_link = first_match.find_element(By.CSS_SELECTOR, "div.match-cta a[href*='/scores/stats-centre/']")
-stats_url = match_stats_link.get_attribute("href")
-print(f"Stats URL: {stats_url}")
+def normalize_stat_key(label: str) -> str:
+    return label.strip().lower().replace(" ", "_")
 
-driver.get(stats_url)
-time.sleep(random.uniform(2, 4))
 
-stats = {}
+def process_stat_value(val: str):
+    val = val.strip()
+    if '(' in val and '%' in val:
+        try:
+            perc = val[val.find('(') + 1 : val.find('%')].strip()
+            return round(float(perc) / 100, 2)
+        except:
+            pass
+    return int(val)
 
-stat_sections = wait.until(EC.presence_of_all_elements_located(
-    (By.CSS_SELECTOR, "div.statTileWrapper")
-))
 
-for section in stat_sections:
-    try:
-        label_element = section.find_element(By.CSS_SELECTOR, "div.labelBold")
-        label = label_element.text.strip().replace(" ", "_").upper()
+def scrape_stats_page(stats_url):
+    open_and_wait(stats_url)
 
-        player1_stat = section.find_element(By.CSS_SELECTOR, "div.statWrapper.unclickable-stats.p1Stats").text.strip()
-        player2_stat = section.find_element(By.CSS_SELECTOR, "div.statWrapper.unclickable-stats.p2Stats").text.strip()
+    stats = {
+        "Player 1": {},
+        "Player 2": {}
+    }
 
-        stats[label] = {
-            "Player 1": player1_stat,
-            "Player 2": player2_stat,
-        }
-    except Exception as e:
-        print(f"Skipping one stat block because of: {e}")
+    stat_sections = wait.until(EC.presence_of_all_elements_located(
+        (By.CSS_SELECTOR, "div.statTileWrapper")
+    ))
 
-player1_name = "Player 1"
-player2_name = "Player 2"
-player1_country = "Country"
-player2_country = "Country"
-player1_ranking = 1
-player2_ranking = 2
+    for section in stat_sections:
+        try:
+            raw_label = section.find_element(By.CSS_SELECTOR, "div.labelWrappper > div").text
+            label = normalize_stat_key(raw_label)
+            p1_stat = section.find_element(By.CSS_SELECTOR, "div.p1Stats").text
+            p2_stat = section.find_element(By.CSS_SELECTOR, "div.p2Stats").text
 
-player1_id = insert_player(player1_name, player1_country, player1_ranking)
-player2_id = insert_player(player2_name, player2_country, player2_ranking)
+            stats["Player 1"][label] = process_stat_value(p1_stat)
+            stats["Player 2"][label] = process_stat_value(p2_stat)
+        except Exception as e:
+            print(f"Skipped a stat block: {e}")
+    return stats
 
-match_stage = "Quarterfinal"
-match_winner_id = player1_id
-match_id = insert_match(1, match_stage, player1_id, player2_id, match_winner_id)
 
-insert_match_stats(match_id, player1_id, stats, "Player 1")
-insert_match_stats(match_id, player2_id, stats, "Player 2")
 
-time.sleep(2)
-driver.close()
-driver.quit()
+def scrape_tournament_by_index(index, year=2025):
+    open_and_wait(f"https://www.atptour.com/en/scores/results-archive?year={year}")
+
+    tournament_elements = wait.until(EC.presence_of_all_elements_located(
+        (By.CSS_SELECTOR, "ul.events > li")
+    ))
+
+    tournament_el = tournament_elements[index]
+
+    name = tournament_el.find_element(By.CSS_SELECTOR, "a.tournament__profile").text.split('\n')[0]
+    city = tournament_el.find_element(By.CSS_SELECTOR, "span.venue").text.strip(" |")
+    tournament_id = insert_tournament(name, city, year)
+
+    result_url = tournament_el.find_element(By.CSS_SELECTOR, ".non-live-cta a").get_attribute("href")
+    open_and_wait(result_url)
+
+    match_count = len(wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.match"))))
+
+    for i in range(match_count):
+        open_and_wait(result_url)
+        matches = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.match")))
+        match = matches[i]
+
+        # try:
+        stats_link = match.find_element(By.CSS_SELECTOR, "div.match-cta a[href*='/scores/stats-centre/']")
+        stats_url = stats_link.get_attribute("href")
+        stats = scrape_stats_page(stats_url)
+
+        p1_name = driver.find_element(By.CSS_SELECTOR, "#Stat-header .team1 .player-details span.name a").text.strip()
+        p2_name = driver.find_element(By.CSS_SELECTOR, "#Stat-header .team2 .player-details span.name a").text.strip()
+
+        p1_id = get_or_create_player(p1_name, 1)
+        p2_id = get_or_create_player(p2_name, 2)
+        winner_id = p1_id
+        match_id = insert_match(tournament_id,  p1_id, p2_id, winner_id)
+        insert_stats(match_id, p1_id, stats["Player 1"])
+        insert_stats(match_id, p2_id, stats["Player 2"])
+        print(f"Inserted match: {p1_name} vs {p2_name}")
+        # except Exception as e:
+        #     print(f"Skipped match {i+1}/{match_count} due to error: {e}")
+
+    driver.quit()
+
+
+if __name__ == "__main__":
+    scrape_tournament_by_index(1)

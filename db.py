@@ -16,40 +16,49 @@ engine = create_engine(DATABASE_URL, echo=True)
 
 
 class Tournament(SQLModel, table=True):
-    __tablename__ = "tournaments"
-    tournament_id: int = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     name: str
     city: str
-    year: int
+    year: int = Field(default=2025)
 
 
 class Player(SQLModel, table=True):
-    __tablename__ = "players"
-    player_id: int = Field(default=None, primary_key=True)
-    name: str
-    country: str
-    ranking: int
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
 
 
 class Match(SQLModel, table=True):
-    __tablename__ = "tournament_matches"
-    match_id: int = Field(default=None, primary_key=True)
-    tournament_id: int
-    stage: str
-    player1_id: int
-    player2_id: int
-    winner_id: int
+    id: int | None = Field(default=None, primary_key=True)
+    tournament_id: int = Field(foreign_key="tournament.id")
+    player1_id: int = Field(foreign_key="player.id")
+    player2_id: int = Field(foreign_key="player.id")
+    winner_id: int = Field(foreign_key="player.id")
 
 
-class MatchStats(SQLModel, table=True):
-    __tablename__ = "match_stats"
-    stat_id: int = Field(default=None, primary_key=True)
-    match_id: int
-    player_id: int
+class Stats(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    match_id: int = Field(foreign_key="match.id")
+    player_id: int = Field(foreign_key="player.id")
+
+    serve_rating: int = 0
     aces: int = 0
     double_faults: int = 0
+    first_serve: float = 0.0
+    first_serve_points_won: float = 0.0
+    second_serve_points_won: float = 0.0
+    break_points_saved: float = 0.0
+    service_games_played: int = 0
+    return_rating: int = 0
+    first_serve_return_points_won: float = 0.0
+    second_serve_return_points_won: float = 0.0
+    break_points_converted: float = 0.0
+    return_games_played: int = 0
+    net_points_won: float = 0.0
     winners: int = 0
     unforced_errors: int = 0
+    service_points_won: float = 0.0
+    return_points_won: float = 0.0
+    total_points_won: float = 0.0
 
 
 def create_db():
@@ -62,36 +71,59 @@ def insert_tournament(tournament_name, city, year):
         session.add(tournament)
         session.commit()
         session.refresh(tournament)
-    return tournament.tournament_id
+    return tournament.id
 
 
-def insert_player(player_name, country, ranking):
-    player = Player(name=player_name, country=country, ranking=ranking)
+def insert_player(player_name):
+    player = Player(name=player_name)
     with Session(engine) as session:
         session.add(player)
         session.commit()
         session.refresh(player)
-    return player.player_id
+    return player.id
 
 
-def insert_match(tournament_id, stage, player1_id, player2_id, winner_id):
-    match = Match(tournament_id=tournament_id, stage=stage, player1_id=player1_id, player2_id=player2_id, winner_id=winner_id)
+def insert_match(tournament_id, player1_id, player2_id, winner_id):
+    match = Match(
+        tournament_id=tournament_id,
+        player1_id=player1_id,
+        player2_id=player2_id,
+        winner_id=winner_id
+    )
     with Session(engine) as session:
         session.add(match)
         session.commit()
         session.refresh(match)
-    return match.match_id
+    return match.id
 
 
-def insert_match_stats(match_id, player_id, stat_dict, dict_key):
-    match_stats = MatchStats(
+def insert_stats(match_id, player_id, stats):
+    match_stats = Stats(
         match_id=match_id,
         player_id=player_id,
-        aces=int(stat_dict.get("ACES", {}).get(dict_key, 0)),
-        double_faults=int(stat_dict.get("DOUBLE FAULTS", {}).get(dict_key, 0)),
-        winners=int(stat_dict.get("WINNERS", {}).get(dict_key, 0)),
-        unforced_errors=int(stat_dict.get("UNFORCED ERRORS", {}).get(dict_key, 0)),
+        serve_rating=stats.get("serve_rating", 0),
+        aces=stats.get("aces", 0),
+        double_faults=stats.get("double_faults", 0),
+        first_serve=stats.get("first_serve", 0.0),
+        first_serve_points_won=stats.get("1st_serve_points_won", 0.0),
+        second_serve_points_won=stats.get("2nd_serve_points_won", 0.0),
+        break_points_saved=stats.get("break_points_saved", 0.0),
+        service_games_played=stats.get("service_games_played", 0),
+        return_rating=stats.get("return_rating", 0),
+        first_serve_return_points_won=stats.get("1st_serve_return_points_won", 0.0),
+        second_serve_return_points_won=stats.get("2nd_serve_return_points_won", 0.0),
+        break_points_converted=stats.get("break_points_converted", 0.0),
+        return_games_played=stats.get("return_games_played", 0),
+        net_points_won=stats.get("net_points_won", 0.0),
+        winners=stats.get("winners", 0),
+        unforced_errors=stats.get("unforced_errors", 0),
+        service_points_won=stats.get("service_points_won", 0.0),
+        return_points_won=stats.get("return_points_won", 0.0),
+        total_points_won=stats.get("total_points_won", 0.0),
     )
     with Session(engine) as session:
         session.add(match_stats)
         session.commit()
+
+if __name__ == "__main__":
+    create_db()

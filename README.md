@@ -1,40 +1,17 @@
-![erd](images/img.png)
+# Tennis Stats Scraper and Dashboard
 
-``` sql
--- 1. Таблица турниров
-CREATE TABLE tournaments (
-    tournament_id SERIAL PRIMARY KEY,
-    name VARCHAR(255),
-    city VARCHAR(255),
-    year INT
-);
+This project scrapes professional tennis match statistics, stores them in a PostgreSQL database, and visualizes them using a Plotly Dash web dashboard.
 
--- 2. Таблица игроков
-CREATE TABLE players (
-    player_id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    country VARCHAR(100),
-    ranking INT
-);
+## 📦 Project Structure
 
--- 3. Таблица матчей
-CREATE TABLE tournament_matches (
-    match_id SERIAL PRIMARY KEY,
-    tournament_id INT REFERENCES tournaments(tournament_id),
-    stage VARCHAR(50),
-    player1_id INT REFERENCES players(player_id),
-    player2_id INT REFERENCES players(player_id),
-    winner_id INT REFERENCES players(player_id)
-);
+- `scrape_atp` – script to scrape match and player statistics from the ATP website  
+- `db` – SQLModel-based models and utility functions for interacting with the PostgreSQL database  
+- `deploy` – Dash web app for visualizing player statistics  
+- `utils.py` – utility functions for data processing and plotting   
 
--- 4. Таблица статистики матча
-CREATE TABLE match_stats (
-    stat_id SERIAL PRIMARY KEY,
-    match_id INT REFERENCES tournament_matches(match_id),
-    player_id INT REFERENCES players(player_id),
-    aces INT,
-    double_faults INT,
-    winners INT,
-    unforced_errors INT,
-);
-```
+## ⚙️ Setup Instructions
+
+1. **Clone the repository**  
+   ```bash
+   git clone https://github.com/yourusername/tennis-dashboard.git
+   cd tennis-dashboard
